@@ -1,0 +1,56 @@
+# Builds DocuVault Go (Android) and posts the .apk under Releases.
+name: DocuVault Go (Android)
+on:
+  push:
+    branches: [main]
+    paths: ['go/**', 'android/**', 'app/js/db.js', 'app/js/sync.js', 'app/js/auth.js', '.github/workflows/go-android.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SERVER: ${{ vars.DOCUVAULT_SERVER || 'https://jainins-server.floot.app' }}
+      VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - name: Put the Go screens into the app
+        run: |
+          W=android/app/src/main/assets/www
+          rm -rf "$W" && mkdir -p "$W/js"
+          cp go/index.html go/go.css go/go.js "$W/"
+          cp app/js/db.js app/js/sync.js app/js/auth.js "$W/js/"
+          echo "window.DOCUVAULT_SERVER = '$SERVER';" > "$W/config.js"
+      - name: Signing key (repository secrets)
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$KP" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/docuvault.jks"
+            echo "DV_KEYSTORE_FILE=$RUNNER_TEMP/docuvault.jks" >> "$GITHUB_ENV"
+            echo "DV_KEYSTORE_PASSWORD=$KP" >> "$GITHUB_ENV"
+            echo "Signing with the DocuVault key."
+          else
+            echo "::warning::No signing key in the repository secrets. This build uses a test key, so phones must uninstall the old version before installing it."
+          fi
+      - name: Build the app
+        working-directory: android
+        env:
+          DV_VERSION_CODE: ${{ github.run_number }}
+          DV_VERSION_NAME: ${{ env.VERSION }}
+        run: gradle --no-daemon assembleRelease
+      - run: cp android/app/build/outputs/apk/release/app-release.apk "DocuVault-Go-$VERSION.apk"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: go-v${{ env.VERSION }}
+          name: DocuVault Go ${{ env.VERSION }}
+          body: |
+            DocuVault Go for Android. On the phone, open this page, download the .apk and tap it to install.
+            The first time, Android asks to allow installs from your browser: allow it once.
+          files: DocuVault-Go-*.apk
