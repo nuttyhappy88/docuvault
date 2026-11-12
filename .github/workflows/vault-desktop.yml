@@ -1,0 +1,40 @@
+# Builds DocuVault for Windows (one-click installer .exe) and posts it under Releases.
+name: DocuVault for Windows
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'desktop/**', '.github/workflows/vault-desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      SERVER: ${{ vars.DOCUVAULT_SERVER || 'https://jainins-server.floot.app' }}
+      VERSION: 3.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Put the DocuVault app into the desktop program
+        shell: bash
+        run: |
+          rm -rf desktop/web && cp -r app desktop/web
+          echo "window.DOCUVAULT_SERVER = '$SERVER';" > desktop/web/config.js
+          rm -f desktop/web/_headers
+      - name: Build the installer
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          npm pkg set version="$VERSION"
+          npx electron-builder --win --x64 --publish never
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vault-v${{ env.VERSION }}
+          name: DocuVault for Windows ${{ env.VERSION }}
+          body: |
+            Double-click DocuVault-Setup-${{ env.VERSION }}.exe to install. No admin rights needed.
+            Windows may say "Windows protected your PC": click More info, then Run anyway.
+          files: desktop/dist/DocuVault-Setup-*.exe
